@@ -11,6 +11,10 @@ let cliqueAtivo = false;
 let usuariosClicaram = [];
 let mensagemBotao = null;
 
+// Para guardar chat_id e message_id da mensagem do botão para facilitar apagar/editar
+let mensagemBotaoChatId = null;
+let mensagemBotaoId = null;
+
 // ============ UTILITÁRIOS ============
 
 function apenasAdmins(callback) {
@@ -87,6 +91,8 @@ bot.onText(/\/iniciarclique/, apenasAdmins(async (msg) => {
     options
   ).then((mensagem) => {
     mensagemBotao = mensagem;
+    mensagemBotaoChatId = mensagem.chat.id;
+    mensagemBotaoId = mensagem.message_id;
   });
 }));
 
@@ -116,16 +122,28 @@ bot.on('callback_query', async (query) => {
   const total = usuariosClicaram.length;
   const texto = `🟢 Clique no botão abaixo!\n\nClique para participar das dinâmicas do grupo, como Assadinho, Pênaltis, Dardo ou Dado. Permaneça online durante toda a dinâmica.\n\nTotal de participantes: ${total}`;
 
-  try {
-    await bot.editMessageText(texto, {
-      chat_id: message.chat.id,
-      message_id: mensagemBotao.message_id,
-      reply_markup: message.reply_markup,
-    });
-  } catch (err) {
-    console.error('Erro ao editar mensagem:', err.message);
+  if (mensagemBotaoChatId && mensagemBotaoId) {
+    try {
+      await bot.editMessageText(texto, {
+        chat_id: mensagemBotaoChatId,
+        message_id: mensagemBotaoId,
+        reply_markup: {
+          inline_keyboard: [[{ text: 'Clique aqui', callback_data: 'clique_padrao' }]],
+        },
+      });
+    } catch (err) {
+      console.error('Erro ao editar mensagem:', err.message);
+    }
+  } else {
+    console.warn('Mensagem do botão não encontrada para editar.');
   }
 });
+
+function formatarListaParticipantes(listaUsuarios) {
+  return listaUsuarios.map((u, i) =>
+    `${i + 1}. ${u.username ? '@' + u.username : `<a href="tg://user?id=${u.id}">${u.nome}</a>`}`
+  ).join('\n');
+}
 
 function finalizarSorteio(msg, limite, nome) {
   const chatId = msg.chat.id;
@@ -143,17 +161,22 @@ function finalizarSorteio(msg, limite, nome) {
   }
 
   const sorteados = usuariosClicaram.sort(() => 0.5 - Math.random()).slice(0, limite);
-  const lista = sorteados.map((u, i) =>
-    `${i + 1}. ${u.username ? '@' + u.username : `[${u.nome}](tg://user?id=${u.id})`}`
-  ).join('\n');
+  const lista = formatarListaParticipantes(sorteados);
 
-  bot.editMessageText(`⏹️ Clique encerrado por /${nome}`, {
-    chat_id: msg.chat.id,
-    message_id: mensagemBotao.message_id,
-  }).catch(() => {});
+  // Apagar mensagem do botão para evitar erros futuros
+  if (mensagemBotaoChatId && mensagemBotaoId) {
+    bot.deleteMessage(mensagemBotaoChatId, mensagemBotaoId).catch(() => {});
+  }
+
+  // Limpar referências
+  mensagemBotao = null;
+  mensagemBotaoChatId = null;
+  mensagemBotaoId = null;
+  usuariosClicaram = [];
 
   bot.sendMessage(chatId, `🎯 Sorteio do ${nome} (${sorteados.length} Participantes):\n\n${lista}`, {
-    parse_mode: 'Markdown',
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
   });
 }
 
@@ -175,17 +198,22 @@ bot.onText(/\/dado_dardo/, apenasAdmins((msg) => {
     return;
   }
 
-  const lista = usuariosClicaram.map((u, i) =>
-    `${i + 1}. ${u.username ? '@' + u.username : `[${u.nome}](tg://user?id=${u.id})`}`
-  ).join('\n');
+  const lista = formatarListaParticipantes(usuariosClicaram);
 
-  bot.editMessageText('⏹️ Clique encerrado', {
-    chat_id: chatId,
-    message_id: mensagemBotao.message_id,
-  }).catch(() => {});
+  // Apagar mensagem do botão
+  if (mensagemBotaoChatId && mensagemBotaoId) {
+    bot.deleteMessage(mensagemBotaoChatId, mensagemBotaoId).catch(() => {});
+  }
+
+  // Limpar referências
+  mensagemBotao = null;
+  mensagemBotaoChatId = null;
+  mensagemBotaoId = null;
+  usuariosClicaram = [];
 
   bot.sendMessage(chatId, `📋 Lista completa dos participantes:\n\n${lista}`, {
-    parse_mode: 'Markdown',
+    parse_mode: 'HTML',
+    disable_web_page_preview: true,
   });
 }));
 
