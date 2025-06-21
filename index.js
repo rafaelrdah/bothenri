@@ -1,164 +1,192 @@
+require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
-const express = require('express');
-const app = express();
 
-const token = process.env.BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot está rodando!'));
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+const DONO_ID = 5999147812;
+const gruposLiberados = new Set();
 
-const donoDoBot = 5999147812;
-const gruposAutorizados = new Set();
-const cliques = new Map();
+let cliqueAtivo = false;
+let usuariosClicaram = [];
+let mensagemBotao = null;
 
-function grupoAutorizado(chatId) {
-  return gruposAutorizados.has(chatId);
+// ============ UTILITÁRIOS ============
+
+function apenasAdmins(callback) {
+  return async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (msg.chat.type !== 'group' && msg.chat.type !== 'supergroup') {
+      bot.sendMessage(chatId, '⚠️ Esse comando só pode ser usado em grupos.');
+      return;
+    }
+
+    if (!gruposLiberados.has(chatId)) {
+      bot.sendMessage(chatId, '🚫 Este grupo não está autorizado a usar o bot.');
+      return;
+    }
+
+    try {
+      const member = await bot.getChatMember(chatId, userId);
+      if (['administrator', 'creator'].includes(member.status)) {
+        callback(msg, match);
+      } else {
+        bot.sendMessage(chatId, '🚫 Você precisa ser administrador para usar esse comando.');
+      }
+    } catch (error) {
+      console.error('Erro ao verificar administrador:', error.message);
+    }
+  };
 }
 
-async function ehAdmin(chatId, userId) {
-  try {
-    const membros = await bot.getChatAdministrators(chatId);
-    return membros.some(m => m.user.id === userId);
-  } catch {
-    return false;
-  }
-}
+// ============ COMANDOS ============
 
 bot.onText(/\/start/, (msg) => {
-  const resposta = `
-👋 Olá, ${msg.from.first_name}!
+  const chatId = msg.chat.id;
+  const texto = `
+👋 Bem-vindo!
 
-📌 *Comandos disponíveis:*
-/start – Ver comandos disponíveis
-/iniciarclique – Criar botão de participação (admins)
-/assadinho – Sorteia até 15 participantes (admins)
-/penaltis – Sorteia até 16 participantes (admins)
-/dado_dardo – Lista os participantes (admins)
-/liberargrupo – Liberar uso neste grupo (apenas dono)
-
-*Use em grupos com o bot como administrador.*
-  `;
-  bot.sendMessage(msg.chat.id, resposta, { parse_mode: 'Markdown' });
+📌 Comandos disponíveis:
+/iniciarclique – Ativa um botão de clique
+/assadinho – SORTEIA 15 pessoas que clicaram
+/penaltis – SORTEIA 16 pessoas que clicaram
+/dado_dardo – Encerra e mostra todos que clicaram
+/liberargrupo – Libera o grupo (somente o dono)
+/start – Ver esta mensagem
+`;
+  bot.sendMessage(chatId, texto);
 });
 
 bot.onText(/\/liberargrupo/, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
-  if (userId !== donoDoBot) {
-    return bot.sendMessage(chatId, "❌ Apenas o dono do bot pode liberar grupos.");
+  if (userId === DONO_ID) {
+    gruposLiberados.add(chatId);
+    bot.sendMessage(chatId, '✅ Grupo autorizado a usar o bot!');
+  } else {
+    bot.sendMessage(chatId, '🚫 Comando disponível apenas para o dono do bot.');
   }
-
-  gruposAutorizados.add(chatId);
-  bot.sendMessage(chatId, "✅ Grupo autorizado com sucesso!");
 });
 
-bot.onText(/\/iniciarclique/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
+bot.onText(/\/iniciarclique/, apenasAdmins(async (msg) => {
+  cliqueAtivo = true;
+  usuariosClicaram = [];
 
-  if (!grupoAutorizado(chatId)) return bot.sendMessage(chatId, "🔒 Este grupo não está autorizado. Peça ao dono para usar /liberargrupo.");
-  if (!await ehAdmin(chatId, userId)) return bot.sendMessage(chatId, "❌ Apenas administradores podem usar este comando.");
-
-  cliques.set(chatId, new Map());
-
-  const opts = {
+  const options = {
     reply_markup: {
-      inline_keyboard: [
-        [{ text: "👉 Clique aqui", callback_data: "clicou" }]
-      ]
-    }
+      inline_keyboard: [[{ text: 'Clique aqui', callback_data: 'clique_padrao' }]],
+    },
   };
 
-  bot.sendMessage(chatId, "🚨 Participe da dinâmica! Clique no botão abaixo 👇", opts);
-});
+  bot.sendMessage(
+    msg.chat.id,
+    `🟢 Clique no botão abaixo!\n\nClique para participar das dinâmicas do grupo, como Assadinho, Pênaltis, Dardo ou Dado. Permaneça online durante toda a dinâmica.\n\nTotal de participantes: 0`,
+    options
+  ).then((mensagem) => {
+    mensagemBotao = mensagem;
+  });
+}));
 
-bot.on("callback_query", (callbackQuery) => {
-  const chatId = callbackQuery.message.chat.id;
-  const user = callbackQuery.from;
+bot.on('callback_query', async (query) => {
+  const { message, from, data } = query;
 
-  if (!cliques.has(chatId)) return;
+  if (data !== 'clique_padrao') return;
+  if (!cliqueAtivo) {
+    bot.answerCallbackQuery(query.id, { text: '❌ Nenhum clique ativo no momento.', show_alert: true });
+    return;
+  }
 
-  const participantes = cliques.get(chatId);
-  participantes.set(user.id, user);
+  if (usuariosClicaram.some((u) => u.id === from.id)) {
+    bot.answerCallbackQuery(query.id, { text: 'Você já clicou!', show_alert: true });
+    return;
+  }
 
-  const total = participantes.size;
-  bot.answerCallbackQuery(callbackQuery.id, { text: `🎯 Você foi registrado! Total: ${total}` });
-});
-
-bot.onText(/\/assadinho/, async (msg) => {
-  const chatId = msg.chat.id;
-  const userId = msg.from.id;
-
-  if (!grupoAutorizado(chatId)) return bot.sendMessage(chatId, "🔒 Grupo não autorizado.");
-  if (!await ehAdmin(chatId, userId)) return bot.sendMessage(chatId, "❌ Apenas administradores podem usar.");
-
-  const participantes = Array.from((cliques.get(chatId) || new Map()).values());
-
-  if (participantes.length === 0) return bot.sendMessage(chatId, "⚠️ Nenhum participante registrado.");
-
-  const sorteados = participantes.sort(() => 0.5 - Math.random()).slice(0, 15);
-
-  let resposta = "🔥 *Sorteio - Assadinho*
-
-";
-  sorteados.forEach((u, i) => {
-    const nome = u.username ? `@${u.username}` : `[${u.first_name}](tg://user?id=${u.id})`;
-    resposta += `${i + 1}. ${nome}
-`;
+  usuariosClicaram.push({
+    id: from.id,
+    nome: from.first_name,
+    username: from.username,
   });
 
-  bot.sendMessage(chatId, resposta, { parse_mode: 'Markdown' });
-  cliques.delete(chatId);
+  bot.answerCallbackQuery(query.id, { text: '✅ Você foi registrado!' });
+
+  // Atualizar mensagem do botão
+  const total = usuariosClicaram.length;
+  const texto = `🟢 Clique no botão abaixo!\n\nClique para participar das dinâmicas do grupo, como Assadinho, Pênaltis, Dardo ou Dado. Permaneça online durante toda a dinâmica.\n\nTotal de participantes: ${total}`;
+
+  try {
+    await bot.editMessageText(texto, {
+      chat_id: message.chat.id,
+      message_id: mensagemBotao.message_id,
+      reply_markup: message.reply_markup,
+    });
+  } catch (err) {
+    console.error('Erro ao editar mensagem:', err.message);
+  }
 });
 
-bot.onText(/\/penaltis/, async (msg) => {
+function finalizarSorteio(msg, limite, nome) {
   const chatId = msg.chat.id;
-  const userId = msg.from.id;
 
-  if (!grupoAutorizado(chatId)) return bot.sendMessage(chatId, "🔒 Grupo não autorizado.");
-  if (!await ehAdmin(chatId, userId)) return bot.sendMessage(chatId, "❌ Apenas administradores podem usar.");
+  if (!cliqueAtivo) {
+    bot.sendMessage(chatId, '⚠️ Nenhum botão de clique está ativo.');
+    return;
+  }
 
-  const participantes = Array.from((cliques.get(chatId) || new Map()).values());
+  cliqueAtivo = false;
 
-  if (participantes.length === 0) return bot.sendMessage(chatId, "⚠️ Nenhum participante registrado.");
+  if (!usuariosClicaram.length) {
+    bot.sendMessage(chatId, 'Ninguém participou.');
+    return;
+  }
 
-  const sorteados = participantes.sort(() => 0.5 - Math.random()).slice(0, 16);
+  const sorteados = usuariosClicaram.sort(() => 0.5 - Math.random()).slice(0, limite);
+  const lista = sorteados.map((u, i) =>
+    `${i + 1}. ${u.username ? '@' + u.username : `[${u.nome}](tg://user?id=${u.id})`}`
+  ).join('\n');
 
-  let resposta = "🥅 *Sorteio - Pênaltis*
+  bot.editMessageText(`⏹️ Clique encerrado por /${nome}`, {
+    chat_id: msg.chat.id,
+    message_id: mensagemBotao.message_id,
+  }).catch(() => {});
 
-";
-  sorteados.forEach((u, i) => {
-    const nome = u.username ? `@${u.username}` : `[${u.first_name}](tg://user?id=${u.id})`;
-    resposta += `${i + 1}. ${nome}
-`;
+  bot.sendMessage(chatId, `🎯 Sorteio do ${nome} (${sorteados.length} Participantes):\n\n${lista}`, {
+    parse_mode: 'Markdown',
   });
+}
 
-  bot.sendMessage(chatId, resposta, { parse_mode: 'Markdown' });
-  cliques.delete(chatId);
-});
+bot.onText(/\/assadinho/, apenasAdmins((msg) => finalizarSorteio(msg, 15, 'assadinho')));
+bot.onText(/\/penaltis/, apenasAdmins((msg) => finalizarSorteio(msg, 16, 'penaltis')));
 
-bot.onText(/\/dado_dardo/, async (msg) => {
+bot.onText(/\/dado_dardo/, apenasAdmins((msg) => {
   const chatId = msg.chat.id;
-  const userId = msg.from.id;
 
-  if (!grupoAutorizado(chatId)) return bot.sendMessage(chatId, "🔒 Grupo não autorizado.");
-  if (!await ehAdmin(chatId, userId)) return bot.sendMessage(chatId, "❌ Apenas administradores podem usar.");
+  if (!cliqueAtivo) {
+    bot.sendMessage(chatId, '⚠️ Nenhum botão de clique está ativo.');
+    return;
+  }
 
-  const participantes = Array.from((cliques.get(chatId) || new Map()).values());
+  cliqueAtivo = false;
 
-  if (participantes.length === 0) return bot.sendMessage(chatId, "⚠️ Nenhum participante registrado.");
+  if (!usuariosClicaram.length) {
+    bot.sendMessage(chatId, 'Ninguém participou.');
+    return;
+  }
 
-  let resposta = "📋 *Participantes registrados:*
+  const lista = usuariosClicaram.map((u, i) =>
+    `${i + 1}. ${u.username ? '@' + u.username : `[${u.nome}](tg://user?id=${u.id})`}`
+  ).join('\n');
 
-";
-  participantes.forEach((u, i) => {
-    const nome = u.username ? `@${u.username}` : `[${u.first_name}](tg://user?id=${u.id})`;
-    resposta += `${i + 1}. ${nome}
-`;
+  bot.editMessageText('⏹️ Clique encerrado', {
+    chat_id: chatId,
+    message_id: mensagemBotao.message_id,
+  }).catch(() => {});
+
+  bot.sendMessage(chatId, `📋 Lista completa dos participantes:\n\n${lista}`, {
+    parse_mode: 'Markdown',
   });
+}));
 
-  bot.sendMessage(chatId, resposta, { parse_mode: 'Markdown' });
-});
+console.log('🤖 Bot rodando!');
