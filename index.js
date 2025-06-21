@@ -5,7 +5,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 const DONO_ID = 5999147812;
-const gruposLiberados = new Set();
+const gruposLiberados = new Set([-1002506070234]);
 
 let cliqueAtivo = false;
 let usuariosClicaram = [];
