@@ -15,7 +15,7 @@ let mensagemBotao = null;
 let mensagemBotaoChatId = null;
 let mensagemBotaoId = null;
 
-let listaPenaltis = []; // Lista salva para o comando /tecnicos
+const listaPenaltisPorChat = {}; // Guarda lista de penaltis por chat
 
 // ============ UTILITÁRIOS ============
 
@@ -49,7 +49,7 @@ function apenasAdmins(callback) {
 
 // ============ COMANDOS ============
 
-bot.onText(/\/start/, (msg) => {
+bot.onText(/^\/start/, (msg) => {
   const chatId = msg.chat.id;
   const texto = `
 👋 Bem-vindo!
@@ -66,7 +66,7 @@ bot.onText(/\/start/, (msg) => {
   bot.sendMessage(chatId, texto);
 });
 
-bot.onText(/\/liberargrupo/, (msg) => {
+bot.onText(/^\/liberargrupo/, (msg) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
 
@@ -78,7 +78,7 @@ bot.onText(/\/liberargrupo/, (msg) => {
   }
 });
 
-bot.onText(/\/iniciarclique/, apenasAdmins(async (msg) => {
+bot.onText(/^\/iniciarclique/, apenasAdmins(async (msg) => {
   cliqueAtivo = true;
   usuariosClicaram = [];
 
@@ -143,9 +143,11 @@ bot.on('callback_query', async (query) => {
 });
 
 function formatarListaParticipantes(listaUsuarios) {
-  return listaUsuarios.map((u, i) =>
-    `${i + 1}. ${u.username ? '@' + u.username : `<a href="tg://user?id=${u.id}">${u.nome}</a>`}`
-  ).join('\n');
+  return listaUsuarios
+    .map((u, i) =>
+      `${i + 1}. ${u.username ? '@' + u.username : `<a href="tg://user?id=${u.id}">${u.nome}</a>`}`
+    )
+    .join('\n');
 }
 
 function finalizarSorteio(msg, limite, nome) {
@@ -179,7 +181,7 @@ function finalizarSorteio(msg, limite, nome) {
 
   // Salvar lista penaltis caso seja este sorteio
   if (nome === 'penaltis') {
-    listaPenaltis = sorteados;
+    listaPenaltisPorChat[chatId] = sorteados;
   }
 
   bot.sendMessage(chatId, `🎯 Sorteio do ${nome} (${sorteados.length} Participantes):\n\n${lista}`, {
@@ -188,13 +190,15 @@ function finalizarSorteio(msg, limite, nome) {
   });
 }
 
-bot.onText(/\/assadinho/, apenasAdmins((msg) => finalizarSorteio(msg, 15, 'assadinho')));
-bot.onText(/\/penaltis/, apenasAdmins((msg) => finalizarSorteio(msg, 16, 'penaltis')));
+bot.onText(/^\/assadinho/, apenasAdmins((msg) => finalizarSorteio(msg, 15, 'assadinho')));
+bot.onText(/^\/penaltis/, apenasAdmins((msg) => finalizarSorteio(msg, 16, 'penaltis')));
 
-bot.onText(/\/tecnicos/, apenasAdmins((msg) => {
+bot.onText(/^\/tecnicos/, apenasAdmins((msg) => {
   const chatId = msg.chat.id;
 
-  if (!listaPenaltis.length) {
+  const listaPenaltis = listaPenaltisPorChat[chatId];
+
+  if (!listaPenaltis || !listaPenaltis.length) {
     bot.sendMessage(chatId, '❌ Nenhum sorteio de pênaltis encontrado. Use /penaltis primeiro.');
     return;
   }
@@ -212,9 +216,10 @@ bot.onText(/\/tecnicos/, apenasAdmins((msg) => {
   tecnicos.push(copia.splice(Math.floor(Math.random() * copia.length), 1)[0]);
   tecnicos.push(copia.splice(Math.floor(Math.random() * copia.length), 1)[0]);
 
-  const formatarLista = (lista) => lista.map((u, i) =>
-    `${i + 1}. ${u.username ? '@' + u.username : `<a href="tg://user?id=${u.id}">${u.nome}</a>`}`
-  ).join('\n');
+  const formatarLista = (lista) =>
+    lista
+      .map((u, i) => `${i + 1}. ${u.username ? '@' + u.username : `<a href="tg://user?id=${u.id}">${u.nome}</a>`}`)
+      .join('\n');
 
   const listaTecnicos = formatarLista(tecnicos);
   const listaJogadores = formatarLista(copia);
@@ -224,7 +229,7 @@ bot.onText(/\/tecnicos/, apenasAdmins((msg) => {
   bot.sendMessage(chatId, resposta, { parse_mode: 'HTML' });
 }));
 
-bot.onText(/\/dado_dardo/, apenasAdmins((msg) => {
+bot.onText(/^\/dado_dardo/, apenasAdmins((msg) => {
   const chatId = msg.chat.id;
 
   if (!cliqueAtivo) {
@@ -259,3 +264,4 @@ bot.onText(/\/dado_dardo/, apenasAdmins((msg) => {
 }));
 
 console.log('🤖 Bot rodando!');
+                            
