@@ -15,6 +15,8 @@ let mensagemBotao = null;
 let mensagemBotaoChatId = null;
 let mensagemBotaoId = null;
 
+let listaPenaltis = []; // Lista salva para o comando /tecnicos
+
 // ============ UTILITÁRIOS ============
 
 function apenasAdmins(callback) {
@@ -57,6 +59,7 @@ bot.onText(/\/start/, (msg) => {
 /assadinho – SORTEIA 15 pessoas que clicaram
 /penaltis – SORTEIA 16 pessoas que clicaram
 /dado_dardo – Encerra e mostra todos que clicaram
+/tecnicos – Escolhe 2 técnicos entre os sorteados do pênaltis
 /liberargrupo – Libera o grupo (somente o dono)
 /start – Ver esta mensagem
 `;
@@ -174,6 +177,11 @@ function finalizarSorteio(msg, limite, nome) {
   mensagemBotaoId = null;
   usuariosClicaram = [];
 
+  // Salvar lista penaltis caso seja este sorteio
+  if (nome === 'penaltis') {
+    listaPenaltis = sorteados;
+  }
+
   bot.sendMessage(chatId, `🎯 Sorteio do ${nome} (${sorteados.length} Participantes):\n\n${lista}`, {
     parse_mode: 'HTML',
     disable_web_page_preview: true,
@@ -182,6 +190,39 @@ function finalizarSorteio(msg, limite, nome) {
 
 bot.onText(/\/assadinho/, apenasAdmins((msg) => finalizarSorteio(msg, 15, 'assadinho')));
 bot.onText(/\/penaltis/, apenasAdmins((msg) => finalizarSorteio(msg, 16, 'penaltis')));
+
+bot.onText(/\/tecnicos/, apenasAdmins((msg) => {
+  const chatId = msg.chat.id;
+
+  if (!listaPenaltis.length) {
+    bot.sendMessage(chatId, '❌ Nenhum sorteio de pênaltis encontrado. Use /penaltis primeiro.');
+    return;
+  }
+
+  if (listaPenaltis.length < 3) {
+    bot.sendMessage(chatId, '❌ Participantes insuficientes para escolher técnicos.');
+    return;
+  }
+
+  // Faz uma cópia para não alterar a original
+  const copia = [...listaPenaltis];
+
+  // Sorteia 2 técnicos removendo-os da cópia
+  const tecnicos = [];
+  tecnicos.push(copia.splice(Math.floor(Math.random() * copia.length), 1)[0]);
+  tecnicos.push(copia.splice(Math.floor(Math.random() * copia.length), 1)[0]);
+
+  const formatarLista = (lista) => lista.map((u, i) =>
+    `${i + 1}. ${u.username ? '@' + u.username : `<a href="tg://user?id=${u.id}">${u.nome}</a>`}`
+  ).join('\n');
+
+  const listaTecnicos = formatarLista(tecnicos);
+  const listaJogadores = formatarLista(copia);
+
+  const resposta = `🧠 Técnicos:\n${listaTecnicos}\n\n⚽ Jogadores:\n${listaJogadores}`;
+
+  bot.sendMessage(chatId, resposta, { parse_mode: 'HTML' });
+}));
 
 bot.onText(/\/dado_dardo/, apenasAdmins((msg) => {
   const chatId = msg.chat.id;
