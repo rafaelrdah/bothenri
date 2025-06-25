@@ -49,7 +49,7 @@ function apenasAdmins(callback) {
 
 // ============ COMANDOS ============
 
-bot.onText(/^\/start/, (msg) => {
+bot.onText(/^\/start$/, (msg) => {
   const chatId = msg.chat.id;
   const texto = `
 👋 Bem-vindo!
