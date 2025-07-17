@@ -211,7 +211,7 @@ bot.onText(/^\/penaltis/, apenasAdmins((msg) => finalizarSorteio(msg, 16, 'penal
 
 bot.onText(/^\/tecnicos/, apenasAdmins((msg) => {
     const chatId = msg.chat.id;
-    const state = getChatState(chatId); // Pega o estado do chat atual
+    const state = getChatState(chatId);
     const listaPenaltis = state.listaPenaltis;
 
     if (!listaPenaltis || !listaPenaltis.length) {
@@ -219,22 +219,26 @@ bot.onText(/^\/tecnicos/, apenasAdmins((msg) => {
         return;
     }
 
-    if (listaPenaltis.length < 4 || listaPenaltis.length % 2 !== 0) {
-        bot.sendMessage(chatId, '❌ Para formar dois times, o número total de participantes do sorteio de pênaltis deve ser par e no mínimo 4.');
+    // Apenas garante que haja participantes suficientes para os técnicos e pelo menos 1 jogador
+    if (listaPenaltis.length < 3) { 
+        bot.sendMessage(chatId, '❌ São necessários pelo menos 3 participantes (2 técnicos e 1 jogador).');
         return;
     }
 
     const jogadoresRestantes = [...listaPenaltis];
 
+    // Sorteia 2 técnicos, removendo-os da lista de jogadores
     const tecnicoA = jogadoresRestantes.splice(Math.floor(Math.random() * jogadoresRestantes.length), 1)[0];
     const tecnicoB = jogadoresRestantes.splice(Math.floor(Math.random() * jogadoresRestantes.length), 1)[0];
 
+    // Embaralha o restante dos jogadores antes de dividir
     for (let i = jogadoresRestantes.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [jogadoresRestantes[i], jogadoresRestantes[j]] = [jogadoresRestantes[j], jogadoresRestantes[i]];
     }
     
-    const metade = jogadoresRestantes.length / 2;
+    // Divide os times. Math.ceil arredonda para cima, garantindo que o Time A receba o jogador extra se o número for ímpar.
+    const metade = Math.ceil(jogadoresRestantes.length / 2);
     const timeA = jogadoresRestantes.slice(0, metade);
     const timeB = jogadoresRestantes.slice(metade);
 
@@ -253,6 +257,7 @@ bot.onText(/^\/tecnicos/, apenasAdmins((msg) => {
 
     bot.sendMessage(chatId, resposta, { parse_mode: 'HTML', disable_web_page_preview: true });
 }));
+
 
 bot.onText(/^\/dado_dardo/, apenasAdmins((msg) => {
   const chatId = msg.chat.id;
@@ -286,4 +291,4 @@ bot.onText(/^\/dado_dardo/, apenasAdmins((msg) => {
   });
 }));
 
-console.log('🤖 Bot rodando!');
+console.log('🤖 Bot rodando e pronto para múltiplos chats!');
