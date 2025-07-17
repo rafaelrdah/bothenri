@@ -194,40 +194,54 @@ bot.onText(/^\/assadinho/, apenasAdmins((msg) => finalizarSorteio(msg, 15, 'assa
 bot.onText(/^\/penaltis/, apenasAdmins((msg) => finalizarSorteio(msg, 16, 'penaltis')));
 
 bot.onText(/^\/tecnicos/, apenasAdmins((msg) => {
-  const chatId = msg.chat.id;
+    const chatId = msg.chat.id;
 
-  const listaPenaltis = listaPenaltisPorChat[chatId];
+    const listaPenaltis = listaPenaltisPorChat[chatId];
 
-  if (!listaPenaltis || !listaPenaltis.length) {
-    bot.sendMessage(chatId, '❌ Nenhum sorteio de pênaltis encontrado. Use /penaltis primeiro.');
-    return;
-  }
+    if (!listaPenaltis || !listaPenaltis.length) {
+        bot.sendMessage(chatId, '❌ Nenhum sorteio de pênaltis encontrado. Use /penaltis primeiro.');
+        return;
+    }
 
-  if (listaPenaltis.length < 3) {
-    bot.sendMessage(chatId, '❌ Participantes insuficientes para escolher técnicos.');
-    return;
-  }
+    // É necessário um número par de jogadores restantes após a remoção dos técnicos
+    if (listaPenaltis.length < 4 || listaPenaltis.length % 2 !== 0) {
+        bot.sendMessage(chatId, '❌ Para formar dois times, o número total de participantes do sorteio de pênaltis deve ser par e no mínimo 4.');
+        return;
+    }
 
-  // Faz uma cópia para não alterar a original
-  const copia = [...listaPenaltis];
+    // Faz uma cópia para não alterar a original
+    const jogadoresRestantes = [...listaPenaltis];
 
-  // Sorteia 2 técnicos removendo-os da cópia
-  const tecnicos = [];
-  tecnicos.push(copia.splice(Math.floor(Math.random() * copia.length), 1)[0]);
-  tecnicos.push(copia.splice(Math.floor(Math.random() * copia.length), 1)[0]);
+    // Sorteia 2 técnicos removendo-os da cópia
+    const tecnicoA = jogadoresRestantes.splice(Math.floor(Math.random() * jogadoresRestantes.length), 1)[0];
+    const tecnicoB = jogadoresRestantes.splice(Math.floor(Math.random() * jogadoresRestantes.length), 1)[0];
 
-  const formatarLista = (lista) =>
-    lista
-      .map((u, i) => `${i + 1}. ${u.username ? '@' + u.username : `<a href="tg://user?id=${u.id}">${u.nome}</a>`}`)
-      .join('\n');
+    // Embaralha o restante dos jogadores antes de dividir
+    for (let i = jogadoresRestantes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [jogadoresRestantes[i], jogadoresRestantes[j]] = [jogadoresRestantes[j], jogadoresRestantes[i]];
+    }
+    
+    const metade = jogadoresRestantes.length / 2;
+    const timeA = jogadoresRestantes.slice(0, metade);
+    const timeB = jogadoresRestantes.slice(metade);
 
-  const listaTecnicos = formatarLista(tecnicos);
-  const listaJogadores = formatarLista(copia);
+    const formatarUsuario = (usuario) => 
+        usuario.username ? '@' + usuario.username : `<a href="tg://user?id=${usuario.id}">${usuario.nome}</a>`;
 
-  const resposta = `🧠 Técnicos:\n${listaTecnicos}\n\n⚽ Jogadores:\n${listaJogadores}`;
+    const formatarListaJogadores = (lista) =>
+        lista
+            .map((u, i) => `${i + 1} - ${formatarUsuario(u)}`)
+            .join('\n');
 
-  bot.sendMessage(chatId, resposta, { parse_mode: 'HTML' });
+    const textoTimeA = `Time A\n\nTécnico: ${formatarUsuario(tecnicoA)}\n\n${formatarListaJogadores(timeA)}`;
+    const textoTimeB = `Time B\n\nTécnico: ${formatarUsuario(tecnicoB)}\n\n${formatarListaJogadores(timeB)}`;
+
+    const resposta = `${textoTimeA}\n\n\n${textoTimeB}`;
+
+    bot.sendMessage(chatId, resposta, { parse_mode: 'HTML', disable_web_page_preview: true });
 }));
+
 
 bot.onText(/^\/dado_dardo/, apenasAdmins((msg) => {
   const chatId = msg.chat.id;
@@ -264,4 +278,3 @@ bot.onText(/^\/dado_dardo/, apenasAdmins((msg) => {
 }));
 
 console.log('🤖 Bot rodando!');
-                            
