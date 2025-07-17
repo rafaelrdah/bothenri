@@ -7,17 +7,28 @@ const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 const DONO_ID = 5999147812;
 const gruposLiberados = new Set([-1002506070234]);
 
-let cliqueAtivo = false;
-let usuariosClicaram = [];
-let mensagemBotao = null;
-
-// Para guardar chat_id e message_id da mensagem do botão para facilitar apagar/editar
-let mensagemBotaoChatId = null;
-let mensagemBotaoId = null;
-
-const listaPenaltisPorChat = {}; // Guarda lista de penaltis por chat
+// Objeto para guardar o estado de cada chat individualmente
+const chatStates = {};
 
 // ============ UTILITÁRIOS ============
+
+/**
+ * Retorna o estado atual de um chat específico.
+ * Se o chat não tiver um estado, cria um padrão.
+ * @param {number} chatId O ID do chat.
+ * @returns {object} O objeto de estado do chat.
+ */
+function getChatState(chatId) {
+  if (!chatStates[chatId]) {
+    chatStates[chatId] = {
+      cliqueAtivo: false,
+      usuariosClicaram: [],
+      mensagemBotaoId: null,
+      listaPenaltis: [],
+    };
+  }
+  return chatStates[chatId];
+}
 
 function apenasAdmins(callback) {
   return async (msg, match) => {
@@ -79,8 +90,11 @@ bot.onText(/^\/liberargrupo/, (msg) => {
 });
 
 bot.onText(/^\/iniciarclique/, apenasAdmins(async (msg) => {
-  cliqueAtivo = true;
-  usuariosClicaram = [];
+  const chatId = msg.chat.id;
+  const state = getChatState(chatId); // Pega o estado do chat atual
+
+  state.cliqueAtivo = true;
+  state.usuariosClicaram = [];
 
   const options = {
     reply_markup: {
@@ -89,31 +103,31 @@ bot.onText(/^\/iniciarclique/, apenasAdmins(async (msg) => {
   };
 
   bot.sendMessage(
-    msg.chat.id,
+    chatId,
     `🟢 Clique no botão abaixo!\n\nClique para participar das dinâmicas do grupo, como Assadinho, Pênaltis, Dardo ou Dado. Permaneça online durante toda a dinâmica.\n\nTotal de participantes: 0`,
     options
   ).then((mensagem) => {
-    mensagemBotao = mensagem;
-    mensagemBotaoChatId = mensagem.chat.id;
-    mensagemBotaoId = mensagem.message_id;
+    state.mensagemBotaoId = mensagem.message_id; // Salva o ID da mensagem no estado do chat
   });
 }));
 
 bot.on('callback_query', async (query) => {
   const { message, from, data } = query;
+  const chatId = message.chat.id;
+  const state = getChatState(chatId); // Pega o estado do chat do clique
 
   if (data !== 'clique_padrao') return;
-  if (!cliqueAtivo) {
+  if (!state.cliqueAtivo) {
     bot.answerCallbackQuery(query.id, { text: '❌ Nenhum clique ativo no momento.', show_alert: true });
     return;
   }
 
-  if (usuariosClicaram.some((u) => u.id === from.id)) {
+  if (state.usuariosClicaram.some((u) => u.id === from.id)) {
     bot.answerCallbackQuery(query.id, { text: 'Você já clicou!', show_alert: true });
     return;
   }
 
-  usuariosClicaram.push({
+  state.usuariosClicaram.push({
     id: from.id,
     nome: from.first_name,
     username: from.username,
@@ -122,23 +136,26 @@ bot.on('callback_query', async (query) => {
   bot.answerCallbackQuery(query.id, { text: '✅ Você foi registrado!' });
 
   // Atualizar mensagem do botão
-  const total = usuariosClicaram.length;
+  const total = state.usuariosClicaram.length;
   const texto = `🟢 Clique no botão abaixo!\n\nClique para participar das dinâmicas do grupo, como Assadinho, Pênaltis, Dardo ou Dado. Permaneça online durante toda a dinâmica.\n\nTotal de participantes: ${total}`;
 
-  if (mensagemBotaoChatId && mensagemBotaoId) {
+  if (state.mensagemBotaoId) {
     try {
       await bot.editMessageText(texto, {
-        chat_id: mensagemBotaoChatId,
-        message_id: mensagemBotaoId,
+        chat_id: chatId,
+        message_id: state.mensagemBotaoId,
         reply_markup: {
           inline_keyboard: [[{ text: 'Clique aqui', callback_data: 'clique_padrao' }]],
         },
       });
     } catch (err) {
-      console.error('Erro ao editar mensagem:', err.message);
+      // Ignorar erros de "message is not modified"
+      if (!err.message.includes('message is not modified')) {
+          console.error('Erro ao editar mensagem:', err.message);
+      }
     }
   } else {
-    console.warn('Mensagem do botão não encontrada para editar.');
+    console.warn(`[Chat ${chatId}] Mensagem do botão não encontrada para editar.`);
   }
 });
 
@@ -152,36 +169,35 @@ function formatarListaParticipantes(listaUsuarios) {
 
 function finalizarSorteio(msg, limite, nome) {
   const chatId = msg.chat.id;
+  const state = getChatState(chatId); // Pega o estado do chat atual
 
-  if (!cliqueAtivo) {
+  if (!state.cliqueAtivo) {
     bot.sendMessage(chatId, '⚠️ Nenhum botão de clique está ativo.');
     return;
   }
 
-  cliqueAtivo = false;
+  state.cliqueAtivo = false;
 
-  if (!usuariosClicaram.length) {
+  if (!state.usuariosClicaram.length) {
     bot.sendMessage(chatId, 'Ninguém participou.');
     return;
   }
 
-  const sorteados = usuariosClicaram.sort(() => 0.5 - Math.random()).slice(0, limite);
+  const sorteados = state.usuariosClicaram.sort(() => 0.5 - Math.random()).slice(0, limite);
   const lista = formatarListaParticipantes(sorteados);
 
   // Apagar mensagem do botão para evitar erros futuros
-  if (mensagemBotaoChatId && mensagemBotaoId) {
-    bot.deleteMessage(mensagemBotaoChatId, mensagemBotaoId).catch(() => {});
+  if (state.mensagemBotaoId) {
+    bot.deleteMessage(chatId, state.mensagemBotaoId).catch(() => {});
   }
-
-  // Limpar referências
-  mensagemBotao = null;
-  mensagemBotaoChatId = null;
-  mensagemBotaoId = null;
-  usuariosClicaram = [];
+  
+  // Limpar estado do chat para a próxima rodada
+  state.usuariosClicaram = [];
+  state.mensagemBotaoId = null;
 
   // Salvar lista penaltis caso seja este sorteio
   if (nome === 'penaltis') {
-    listaPenaltisPorChat[chatId] = sorteados;
+    state.listaPenaltis = sorteados;
   }
 
   bot.sendMessage(chatId, `🎯 Sorteio do ${nome} (${sorteados.length} Participantes):\n\n${lista}`, {
@@ -195,28 +211,24 @@ bot.onText(/^\/penaltis/, apenasAdmins((msg) => finalizarSorteio(msg, 16, 'penal
 
 bot.onText(/^\/tecnicos/, apenasAdmins((msg) => {
     const chatId = msg.chat.id;
-
-    const listaPenaltis = listaPenaltisPorChat[chatId];
+    const state = getChatState(chatId); // Pega o estado do chat atual
+    const listaPenaltis = state.listaPenaltis;
 
     if (!listaPenaltis || !listaPenaltis.length) {
         bot.sendMessage(chatId, '❌ Nenhum sorteio de pênaltis encontrado. Use /penaltis primeiro.');
         return;
     }
 
-    // É necessário um número par de jogadores restantes após a remoção dos técnicos
     if (listaPenaltis.length < 4 || listaPenaltis.length % 2 !== 0) {
         bot.sendMessage(chatId, '❌ Para formar dois times, o número total de participantes do sorteio de pênaltis deve ser par e no mínimo 4.');
         return;
     }
 
-    // Faz uma cópia para não alterar a original
     const jogadoresRestantes = [...listaPenaltis];
 
-    // Sorteia 2 técnicos removendo-os da cópia
     const tecnicoA = jogadoresRestantes.splice(Math.floor(Math.random() * jogadoresRestantes.length), 1)[0];
     const tecnicoB = jogadoresRestantes.splice(Math.floor(Math.random() * jogadoresRestantes.length), 1)[0];
 
-    // Embaralha o restante dos jogadores antes de dividir
     for (let i = jogadoresRestantes.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [jogadoresRestantes[i], jogadoresRestantes[j]] = [jogadoresRestantes[j], jogadoresRestantes[i]];
@@ -242,34 +254,31 @@ bot.onText(/^\/tecnicos/, apenasAdmins((msg) => {
     bot.sendMessage(chatId, resposta, { parse_mode: 'HTML', disable_web_page_preview: true });
 }));
 
-
 bot.onText(/^\/dado_dardo/, apenasAdmins((msg) => {
   const chatId = msg.chat.id;
+  const state = getChatState(chatId); // Pega o estado do chat atual
 
-  if (!cliqueAtivo) {
+  if (!state.cliqueAtivo) {
     bot.sendMessage(chatId, '⚠️ Nenhum botão de clique está ativo.');
     return;
   }
 
-  cliqueAtivo = false;
-
-  if (!usuariosClicaram.length) {
+  if (!state.usuariosClicaram.length) {
     bot.sendMessage(chatId, 'Ninguém participou.');
     return;
   }
-
-  const lista = formatarListaParticipantes(usuariosClicaram);
+  
+  const lista = formatarListaParticipantes(state.usuariosClicaram);
 
   // Apagar mensagem do botão
-  if (mensagemBotaoChatId && mensagemBotaoId) {
-    bot.deleteMessage(mensagemBotaoChatId, mensagemBotaoId).catch(() => {});
+  if (state.mensagemBotaoId) {
+    bot.deleteMessage(chatId, state.mensagemBotaoId).catch(() => {});
   }
 
-  // Limpar referências
-  mensagemBotao = null;
-  mensagemBotaoChatId = null;
-  mensagemBotaoId = null;
-  usuariosClicaram = [];
+  // Limpar estado do chat para a próxima rodada
+  state.cliqueAtivo = false;
+  state.usuariosClicaram = [];
+  state.mensagemBotaoId = null;
 
   bot.sendMessage(chatId, `📋 Lista completa dos participantes:\n\n${lista}`, {
     parse_mode: 'HTML',
